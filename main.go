@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -29,6 +31,44 @@ func init() {
 		{ID: 3, Title: "Build a simple API", Done: true},
 	}
 	nextID = 4
+}
+
+func todoHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPut:
+		updateTodo(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func updateTodo(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/todo/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
+		return
+	}
+
+	var updatedTodo Todo
+	if err := json.NewDecoder(r.Body).Decode(&updatedTodo); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	for i, todo := range todos {
+		if todo.ID == id {
+			todos[i].Title = updatedTodo.Title
+			todos[i].Done = updatedTodo.Done
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+
+	http.Error(w, "Todo not found", http.StatusNotFound)
 }
 
 func todosHandler(w http.ResponseWriter, r *http.Request) {
@@ -61,14 +101,14 @@ func getTodos(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>`
 
-	t, err := template.New("todos").Parse(tmpl)
+	tt, err := template.New("todos").Parse(tmpl)
 	if err != nil {
 		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	if err := t.Execute(w, todos); err != nil {
+	if err := tt.Execute(w, todos); err != nil {
 		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
 	}
 }
@@ -96,6 +136,7 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/todos", todosHandler)
+	http.HandleFunc("/todo/", todoHandler)
 
 	fmt.Println("Server starting on http://localhost:8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
