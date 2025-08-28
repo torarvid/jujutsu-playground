@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -44,6 +46,20 @@ func useTemplate(name, tmpl string, w http.ResponseWriter, data any) {
 	}
 }
 
+func updateTodo(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/todo/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
+		return
+	}
+	for i, todo := range todos {
+		if todo.ID == id {
+			todos[i].Title = updatedTodo.Title
+			todos[i].Done = updatedTodo.Done
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 func todosHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
