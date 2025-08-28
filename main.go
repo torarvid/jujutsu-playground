@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"sync"
@@ -30,6 +31,19 @@ func init() {
 	nextID = 4
 }
 
+func useTemplate(name, tmpl string, w http.ResponseWriter, data any) {
+	t, err := template.New(name).Parse(tmpl)
+	if err != nil {
+		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	if err := t.Execute(w, data); err != nil {
+		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
+	}
+}
+
 func todosHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -45,10 +59,22 @@ func getTodos(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(todos); err != nil {
-		http.Error(w, "Failed to encode todos", http.StatusInternalServerError)
-	}
+	tmpl := `<!DOCTYPE html>
+<html>
+<head>
+	<title>Todos</title>
+</head>
+<body>
+	<h1>Todos</h1>
+	<ul>
+		{{range .}}
+			<li>{{.Title}} ({{if .Done}}Done{{else}}Not Done{{end}})</li>
+		{{end}}
+	</ul>
+</body>
+</html>`
+
+	useTemplate("todos", tmpl, w, todos)
 }
 
 func createTodo(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +101,7 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/todos", todosHandler)
 
-	fmt.Println("Server starting on port 8080...")
+	fmt.Println("Server starting on http://localhost:8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalf("Could not start server: %s\n", err)
 	}
