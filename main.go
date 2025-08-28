@@ -46,6 +46,15 @@ func useTemplate(name, tmpl string, w http.ResponseWriter, data any) {
 	}
 }
 
+func todoHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPut:
+		updateTodo(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func updateTodo(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/todo/")
 	id, err := strconv.Atoi(idStr)
@@ -53,6 +62,16 @@ func updateTodo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
 		return
 	}
+
+	var updatedTodo Todo
+	if err := json.NewDecoder(r.Body).Decode(&updatedTodo); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
 	for i, todo := range todos {
 		if todo.ID == id {
 			todos[i].Title = updatedTodo.Title
@@ -60,6 +79,11 @@ func updateTodo(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+	}
+
+	http.Error(w, "Todo not found", http.StatusNotFound)
+}
+
 func todosHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -116,6 +140,7 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/todos", todosHandler)
+	http.HandleFunc("/todo/", todoHandler)
 
 	fmt.Println("Server starting on http://localhost:8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
