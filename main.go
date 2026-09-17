@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -44,6 +46,44 @@ func useTemplate(name, tmpl string, w http.ResponseWriter, data any) {
 	}
 }
 
+func todoHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPut:
+		updateTodo(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func updateTodo(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/todo/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid todo ID", http.StatusBadRequest)
+		return
+	}
+
+	var updatedTodo Todo
+	if err := json.NewDecoder(r.Body).Decode(&updatedTodo); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	for i, todo := range todos {
+		if todo.ID == id {
+			todos[i].Title = updatedTodo.Title
+			todos[i].Done = updatedTodo.Done
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+
+	http.Error(w, "Todo not found", http.StatusNotFound)
+}
+
 func todosHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -63,14 +103,80 @@ func getTodos(w http.ResponseWriter, r *http.Request) {
 <html>
 <head>
 	<title>Todos</title>
+	<style>
+		.view-mode { display: block; }
+		.edit-mode { display: none; }
+	</style>
 </head>
 <body>
 	<h1>Todos</h1>
 	<ul>
 		{{range .}}
-			<li>{{.Title}} ({{if .Done}}Done{{else}}Not Done{{end}})</li>
+			<li id="todo-{{.ID}}">
+				<form onsubmit="submitTodo({{.ID}}); return false;">
+					<div class="view-mode">
+						<input type="checkbox" {{if .Done}}checked{{end}} disabled>
+						<span>{{.Title}}</span>
+						<button type="button" onclick="toggleEdit({{.ID}})">Edit</button>
+					</div>
+					<div class="edit-mode">
+						<input type="checkbox" id="done-{{.ID}}" {{if .Done}}checked{{end}}>
+						<input type="text" id="title-{{.ID}}" value="{{.Title}}" required>
+						<button type="submit">Submit</button>
+					</div>
+				</form>
+			</li>
 		{{end}}
 	</ul>
+
+	<script>
+		function toggleEdit(id) {
+			const todoLi = document.getElementById('todo-' + id);
+			const viewMode = todoLi.querySelector('.view-mode');
+			const editMode = todoLi.querySelector('.edit-mode');
+
+			viewMode.style.display = 'none';
+			editMode.style.display = 'block';
+		}
+
+		function submitTodo(id) {
+			const titleInput = document.getElementById('title-' + id);
+			const doneCheckbox = document.getElementById('done-' + id);
+
+			const data = {
+				title: titleInput.value,
+				done: doneCheckbox.checked
+			};
+
+			fetch('/todo/' + id, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(data)
+			})
+			.then(response => {
+				if (response.ok) {
+					// Switch back to view mode and update the content
+					const todoLi = document.getElementById('todo-' + id);
+					const viewMode = todoLi.querySelector('.view-mode');
+					const editMode = todoLi.querySelector('.edit-mode');
+					
+					viewMode.querySelector('span').textContent = data.title;
+					viewMode.querySelector('input[type="checkbox"]').checked = data.done;
+
+					editMode.style.display = 'none';
+					viewMode.style.display = 'block';
+				} else {
+					alert('Failed to update todo');
+				}
+			})
+			.catch(error => {
+				console.error('Error:', error);
+				alert('An error occurred');
+			});
+		}
+	</script>
 </body>
 </html>`
 
@@ -100,6 +206,7 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/todos", todosHandler)
+	http.HandleFunc("/todo/", todoHandler)
 
 	fmt.Println("Server starting on http://localhost:8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
